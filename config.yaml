@@ -1,0 +1,14 @@
+vision:
+  provider: "gemini"
+  gemini_api_key: ""        # lấy miễn phí tại aistudio.google.com
+  anthropic_api_key: ""     # dùng khi chuyển sang provider "claude"
+
+scoring:
+  weights:
+    technical: 0.30
+    aesthetic: 0.40
+    content: 0.30
+  top_n: 5
+
+processing:
+  thumbnail_size: 1200

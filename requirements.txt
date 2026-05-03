@@ -1,0 +1,8 @@
+osxphotos
+google-generativeai
+anthropic
+Pillow
+tqdm
+PyYAML
+pytest
+pytest-mock
