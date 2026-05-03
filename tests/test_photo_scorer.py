@@ -103,3 +103,38 @@ def test_claude_provider_parses_response(tmp_path):
     assert result.aesthetic == 8.5
     assert result.content == 6.0
     assert result.reason == "Màu sắc đẹp nhưng hơi mờ"
+
+
+from photo_scorer import get_provider, rank_photos
+
+
+def test_get_provider_returns_gemini():
+    with patch("photo_scorer.genai"):
+        provider = get_provider({"provider": "gemini", "gemini_api_key": "key", "anthropic_api_key": ""})
+    assert isinstance(provider, GeminiProvider)
+
+
+def test_get_provider_returns_claude():
+    with patch("photo_scorer.anthropic"):
+        provider = get_provider({"provider": "claude", "gemini_api_key": "", "anthropic_api_key": "key"})
+    assert isinstance(provider, ClaudeProvider)
+
+
+def test_get_provider_raises_on_unknown():
+    with pytest.raises(ValueError, match="Unknown provider"):
+        get_provider({"provider": "openai", "gemini_api_key": "", "anthropic_api_key": ""})
+
+
+def test_rank_photos_returns_top_n_sorted():
+    results = [
+        ScoreResult("a.jpg", 7.0, 6.0, 8.0, 0.0, "ok"),
+        ScoreResult("b.jpg", 9.0, 9.0, 9.0, 0.0, "great"),
+        ScoreResult("c.jpg", 5.0, 5.0, 5.0, 0.0, "poor"),
+        ScoreResult("d.jpg", 8.0, 8.0, 7.0, 0.0, "good"),
+    ]
+    weights = {"technical": 0.30, "aesthetic": 0.40, "content": 0.30}
+    ranked = rank_photos(results, weights, top_n=2)
+    assert len(ranked) == 2
+    assert ranked[0].filename == "b.jpg"
+    assert ranked[1].filename == "d.jpg"
+    assert ranked[0].total > 0

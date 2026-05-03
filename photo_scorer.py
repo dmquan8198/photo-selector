@@ -116,3 +116,23 @@ class ClaudeProvider(VisionProvider):
             }],
         )
         return _parse_response(filename, response.content[0].text)
+
+
+def get_provider(vision_config: dict) -> VisionProvider:
+    provider_name = vision_config["provider"]
+    if provider_name == "gemini":
+        return GeminiProvider(api_key=vision_config["gemini_api_key"])
+    elif provider_name == "claude":
+        return ClaudeProvider(api_key=vision_config["anthropic_api_key"])
+    raise ValueError(f"Unknown provider: {provider_name}. Must be 'gemini' or 'claude'.")
+
+
+def rank_photos(
+    results: list[ScoreResult],
+    weights: dict[str, float],
+    top_n: int,
+) -> list[ScoreResult]:
+    for r in results:
+        r.total = compute_total(r, weights)
+    results.sort(key=lambda r: r.total, reverse=True)
+    return results[:top_n]
