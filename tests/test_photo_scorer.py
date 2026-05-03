@@ -78,3 +78,28 @@ def test_gemini_provider_handles_invalid_json(tmp_path):
     assert result.technical == 5.0
     assert result.aesthetic == 5.0
     assert result.content == 5.0
+
+
+from photo_scorer import ClaudeProvider
+
+
+def test_claude_provider_parses_response(tmp_path):
+    from PIL import Image
+    img_path = tmp_path / "test.jpg"
+    Image.new("RGB", (100, 100), color=(200, 150, 100)).save(img_path)
+
+    with patch("photo_scorer.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_message = MagicMock()
+        mock_message.content = [MagicMock(text='{"technical": 7.0, "aesthetic": 8.5, "content": 6.0, "reason": "Màu sắc đẹp nhưng hơi mờ"}')]
+        mock_client.messages.create.return_value = mock_message
+
+        provider = ClaudeProvider(api_key="fake-key")
+        result = provider.score(str(img_path))
+
+    assert result.filename == "test.jpg"
+    assert result.technical == 7.0
+    assert result.aesthetic == 8.5
+    assert result.content == 6.0
+    assert result.reason == "Màu sắc đẹp nhưng hơi mờ"

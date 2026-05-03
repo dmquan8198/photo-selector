@@ -83,3 +83,36 @@ def _parse_response(filename: str, text: str) -> ScoreResult:
             total=0.0,
             reason="Không thể phân tích ảnh này",
         )
+
+
+import anthropic
+import base64
+
+
+class ClaudeProvider(VisionProvider):
+    def __init__(self, api_key: str) -> None:
+        self._client = anthropic.Anthropic(api_key=api_key)
+
+    def score(self, image_path: str) -> ScoreResult:
+        filename = os.path.basename(image_path)
+        with open(image_path, "rb") as f:
+            image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+        response = self._client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": image_data,
+                        },
+                    },
+                    {"type": "text", "text": SCORING_PROMPT},
+                ],
+            }],
+        )
+        return _parse_response(filename, response.content[0].text)
