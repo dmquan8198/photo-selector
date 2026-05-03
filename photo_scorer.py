@@ -85,7 +85,10 @@ def _parse_response(filename: str, text: str) -> ScoreResult:
         )
 
 
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 import base64
 
 
@@ -134,5 +137,5 @@ def rank_photos(
 ) -> list[ScoreResult]:
     for r in results:
         r.total = compute_total(r, weights)
-    results.sort(key=lambda r: r.total, reverse=True)
-    return results[:top_n]
+    sorted_results = sorted(results, key=lambda r: r.total, reverse=True)
+    return sorted_results[:top_n]

@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from pathlib import Path
 
 import yaml
 from tqdm import tqdm
@@ -12,7 +13,7 @@ from photo_scorer import ScoreResult, VisionProvider, get_provider, rank_photos
 
 def run(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
-    config = _load_config("config.yaml")
+    config = _load_config(Path(__file__).parent / "config.yaml")
 
     weights = _resolve_weights(args, config)
     top_n = args.top or config["scoring"]["top_n"]
@@ -53,7 +54,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _load_config(path: str) -> dict:
+def _load_config(path) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -83,12 +84,12 @@ def _load_photos(args: argparse.Namespace, thumbnail_size: int) -> list[PhotoInf
 
 
 def _print_results(ranked: list[ScoreResult], elapsed: float) -> None:
-    print(f"\nTop {len(ranked)} anh duoc chon:\n")
+    print(f"\n🏆 Top {len(ranked)} ảnh được chọn:\n")
     for i, r in enumerate(ranked, 1):
-        print(f"#{i}  {r.filename}  -  {r.total:.1f}/10")
-        print(f"    Ky thuat: {r.technical:.1f}  |  Tham my: {r.aesthetic:.1f}  |  Noi dung: {r.content:.1f}")
-        print(f"    -> {r.reason}\n")
-    print(f"Thoi gian chay: {elapsed:.0f} giay")
+        print(f"#{i}  {r.filename}  —  {r.total:.1f}/10")
+        print(f"    Kỹ thuật: {r.technical:.1f}  |  Thẩm mỹ: {r.aesthetic:.1f}  |  Nội dung: {r.content:.1f}")
+        print(f"    → {r.reason}\n")
+    print(f"Thời gian chạy: {elapsed:.0f} giây")
 
 
 if __name__ == "__main__":

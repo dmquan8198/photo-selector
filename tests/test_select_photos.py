@@ -50,6 +50,7 @@ def test_cli_album_mode_prints_results(capsys):
     assert "IMG_001.JPG" in out
     assert "9.0" in out
     assert "#1" in out
+    assert "Kỹ thuật" in out
 
 
 def test_cli_weights_override(capsys):
