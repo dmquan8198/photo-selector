@@ -29,3 +29,52 @@ def test_compute_total_equal_weights():
     weights = {"technical": 0.33, "aesthetic": 0.34, "content": 0.33}
     total = compute_total(result, weights)
     assert round(total, 1) == 6.0
+
+
+from unittest.mock import MagicMock, patch
+from photo_scorer import GeminiProvider
+
+MOCK_GEMINI_RESPONSE = '{"technical": 8.5, "aesthetic": 7.0, "content": 9.0, "reason": "Ánh sáng tốt, khuôn mặt rõ"}'
+
+
+def test_gemini_provider_parses_response(tmp_path):
+    from PIL import Image
+    img_path = tmp_path / "test.jpg"
+    Image.new("RGB", (100, 100), color=(128, 128, 128)).save(img_path)
+
+    with patch("photo_scorer.genai") as mock_genai:
+        mock_model = MagicMock()
+        mock_genai.GenerativeModel.return_value = mock_model
+        mock_response = MagicMock()
+        mock_response.text = MOCK_GEMINI_RESPONSE
+        mock_model.generate_content.return_value = mock_response
+
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.score(str(img_path))
+
+    assert result.filename == "test.jpg"
+    assert result.technical == 8.5
+    assert result.aesthetic == 7.0
+    assert result.content == 9.0
+    assert result.reason == "Ánh sáng tốt, khuôn mặt rõ"
+    assert result.total == 0.0
+
+
+def test_gemini_provider_handles_invalid_json(tmp_path):
+    from PIL import Image
+    img_path = tmp_path / "test.jpg"
+    Image.new("RGB", (100, 100)).save(img_path)
+
+    with patch("photo_scorer.genai") as mock_genai:
+        mock_model = MagicMock()
+        mock_genai.GenerativeModel.return_value = mock_model
+        mock_response = MagicMock()
+        mock_response.text = "Xin lỗi, tôi không thể đánh giá ảnh này."
+        mock_model.generate_content.return_value = mock_response
+
+        provider = GeminiProvider(api_key="fake-key")
+        result = provider.score(str(img_path))
+
+    assert result.technical == 5.0
+    assert result.aesthetic == 5.0
+    assert result.content == 5.0
