@@ -4,5 +4,6 @@ anthropic
 Pillow
 tqdm
 PyYAML
+streamlit
 pytest
 pytest-mock
