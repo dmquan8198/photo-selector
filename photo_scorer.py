@@ -51,7 +51,7 @@ except ImportError:
 class GeminiProvider(VisionProvider):
     def __init__(self, api_key: str) -> None:
         genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel("gemini-1.5-flash")
+        self._model = genai.GenerativeModel("gemini-2.0-flash")
 
     def score(self, image_path: str) -> ScoreResult:
         import PIL.Image
@@ -61,6 +61,24 @@ class GeminiProvider(VisionProvider):
         return _parse_response(filename, response.text)
 
 
+def _extract_float(value) -> float:
+    """Extract float from a value that might be int, float, str, or dict."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        return float(value)
+    if isinstance(value, dict):
+        # llava sometimes returns {"score": 8.5} or {"value": 8.5}
+        for key in ("score", "value", "rating", "points"):
+            if key in value:
+                return float(value[key])
+        # fallback: grab first numeric value in dict
+        for v in value.values():
+            if isinstance(v, (int, float)):
+                return float(v)
+    return 5.0
+
+
 def _parse_response(filename: str, text: str) -> ScoreResult:
     try:
         start = text.find("{")
@@ -68,11 +86,11 @@ def _parse_response(filename: str, text: str) -> ScoreResult:
         data = json.loads(text[start:end])
         return ScoreResult(
             filename=filename,
-            technical=float(data["technical"]),
-            aesthetic=float(data["aesthetic"]),
-            content=float(data["content"]),
+            technical=_extract_float(data["technical"]),
+            aesthetic=_extract_float(data["aesthetic"]),
+            content=_extract_float(data["content"]),
             total=0.0,
-            reason=data.get("reason", ""),
+            reason=str(data.get("reason", "")),
         )
     except (json.JSONDecodeError, KeyError, ValueError):
         return ScoreResult(
@@ -121,13 +139,40 @@ class ClaudeProvider(VisionProvider):
         return _parse_response(filename, response.content[0].text)
 
 
+class OllamaProvider(VisionProvider):
+    def __init__(self, model: str = "llava") -> None:
+        self._model = model
+        self._base_url = "http://localhost:11434"
+
+    def score(self, image_path: str) -> ScoreResult:
+        import requests
+        import base64
+        filename = os.path.basename(image_path)
+        with open(image_path, "rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
+        response = requests.post(
+            f"{self._base_url}/api/generate",
+            json={
+                "model": self._model,
+                "prompt": SCORING_PROMPT,
+                "images": [image_data],
+                "stream": False,
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        return _parse_response(filename, response.json()["response"])
+
+
 def get_provider(vision_config: dict) -> VisionProvider:
     provider_name = vision_config["provider"]
     if provider_name == "gemini":
         return GeminiProvider(api_key=vision_config["gemini_api_key"])
     elif provider_name == "claude":
         return ClaudeProvider(api_key=vision_config["anthropic_api_key"])
-    raise ValueError(f"Unknown provider: {provider_name}. Must be 'gemini' or 'claude'.")
+    elif provider_name == "ollama":
+        return OllamaProvider(model=vision_config.get("ollama_model", "llava"))
+    raise ValueError(f"Unknown provider: {provider_name}. Must be 'gemini', 'claude', or 'ollama'.")
 
 
 def rank_photos(

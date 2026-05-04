@@ -66,6 +66,8 @@ if run_btn and total_w == 100:
     from photo_loader import load_photos_by_album, cleanup
     from photo_scorer import get_provider, rank_photos
 
+    cleanup()  # xóa ảnh cũ từ lần chạy trước (nếu có)
+
     weights = {
         "technical": w_tech / 100,
         "aesthetic": w_aest / 100,
@@ -95,7 +97,6 @@ if run_btn and total_w == 100:
 
     ranked = rank_photos(raw_results, weights, top_n=int(top_n))
     elapsed = time.time() - start
-    cleanup()
 
     progress.empty()
     st.success(f"Phân tích xong {len(photos)} ảnh trong {elapsed:.0f} giây")
@@ -105,14 +106,14 @@ if run_btn and total_w == 100:
 
     for i, r in enumerate(ranked):
         # find thumbnail path from photos list
-        photo_info = next((p for p in photos if p.original_filename == r.filename), None)
+        photo_info = next((p for p in photos if Path(p.thumbnail_path).name == r.filename), None)
 
         col_img, col_info = st.columns([1, 2])
         with col_img:
             if photo_info and Path(photo_info.thumbnail_path).exists():
                 st.image(photo_info.thumbnail_path, use_container_width=True)
             else:
-                st.caption("(ảnh không còn trong /tmp)")
+                st.caption("(không tìm thấy ảnh)")
 
         with col_info:
             st.markdown(f"**#{i+1} — {r.filename}**")
