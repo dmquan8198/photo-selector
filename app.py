@@ -102,10 +102,23 @@ if run_btn and total_w == 100:
     st.success(f"Phân tích xong {len(photos)} ảnh trong {elapsed:.0f} giây")
     st.divider()
 
+    PHOTO_TYPE_LABELS = {
+        "portrait": "👤 Portrait",
+        "landscape": "🏔️ Phong cảnh",
+        "event_group": "🎉 Sự kiện / Nhóm",
+        "food_object": "🍜 Đồ ăn / Vật thể",
+        "street_candid": "📸 Street / Candid",
+        "unknown": "❓ Không xác định",
+    }
+    DIRECTION_LABELS = {
+        "technical_leaning": "🔧 Thiên kỹ thuật",
+        "emotional_leaning": "❤️ Thiên cảm xúc",
+        "balanced": "⚖️ Cân bằng",
+    }
+
     st.subheader(f"🏆 Top {len(ranked)} ảnh đẹp nhất")
 
     for i, r in enumerate(ranked):
-        # find thumbnail path from photos list
         photo_info = next((p for p in photos if Path(p.thumbnail_path).name == r.filename), None)
 
         col_img, col_info = st.columns([1, 2])
@@ -116,7 +129,10 @@ if run_btn and total_w == 100:
                 st.caption("(không tìm thấy ảnh)")
 
         with col_info:
+            type_label = PHOTO_TYPE_LABELS.get(r.photo_type, r.photo_type)
+            dir_label = DIRECTION_LABELS.get(r.direction, r.direction)
             st.markdown(f"**#{i+1} — {r.filename}**")
+            st.caption(f"{type_label} · {dir_label}")
             st.markdown(f"### {r.total:.1f} / 10")
             c1, c2, c3 = st.columns(3)
             c1.metric("🔧 Kỹ thuật", f"{r.technical:.1f}")

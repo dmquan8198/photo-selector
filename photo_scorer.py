@@ -1,16 +1,18 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 
 
 @dataclass
 class ScoreResult:
     filename: str
-    technical: float   # 1–10
-    aesthetic: float   # 1–10
-    content: float     # 1–10
-    total: float       # weighted average, filled by compute_total
-    reason: str        # lý do ngắn gọn bằng tiếng Việt
+    technical: float        # 2–10, bội số 0.5
+    aesthetic: float        # 2–10, bội số 0.5
+    content: float          # 2–10, bội số 0.5
+    total: float            # weighted average, filled by compute_total
+    reason: str             # điểm mạnh/yếu chính bằng tiếng Việt
+    photo_type: str = "unknown"   # portrait|landscape|event_group|food_object|street_candid
+    direction: str = "balanced"   # technical_leaning|emotional_leaning|balanced
 
 
 def compute_total(result: ScoreResult, weights: dict[str, float]) -> float:
@@ -30,14 +32,76 @@ class VisionProvider(ABC):
 import json
 import os
 
-SCORING_PROMPT = """Evaluate this photo and return ONLY a JSON object with these exact keys:
-- "technical": score 1-10 for sharpness, exposure, focus, no blur/noise
-- "aesthetic": score 1-10 for composition, color harmony, visual balance
-- "content": score 1-10 for subject clarity and appeal (faces/expressions if people present, otherwise main subject quality)
-- "reason": one short sentence in Vietnamese explaining the top strength or weakness
+SCORING_PROMPT = """You are a professional photo analyst. Evaluate this photo for social media posting quality.
+Follow all 4 steps in order. Do NOT skip any step.
 
-Return ONLY valid JSON, no extra text. Example:
-{"technical": 8.5, "aesthetic": 7.0, "content": 9.0, "reason": "Ánh sáng tốt, khuôn mặt rõ nét"}"""
+═══ STEP 1 — CLASSIFY photo type (pick exactly one):
+• portrait        → person/people as main subject (headshot, selfie, individual)
+• landscape       → scenery, nature, architecture, places
+• event_group     → events, celebrations, 3+ people together
+• food_object     → food, drinks, products, still life
+• street_candid   → street photography, candid moments, action shots
+
+═══ STEP 2 — SCORE each dimension using ANCHOR POINTS below.
+Rules: pick the nearest anchor (2 / 4 / 6 / 8 / 10), then add or subtract 0.5 only if truly borderline.
+Valid scores: 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0
+
+── TECHNICAL (sharpness · exposure · noise):
+  10 → Subject perfectly sharp, exposure ideal (no blown highlights, no crushed blacks), noise-free
+   8 → Subject sharp, minor exposure issue OR slight shadow noise — overall clean
+   6 → Subject slightly soft OR exposure off ~1 stop, still clearly usable
+   4 → Noticeable motion blur OR significantly over/underexposed
+   2 → Unrecoverable: extreme blur, black/white frame, completely unusable
+
+  Type-specific adjustments:
+  portrait     → eyes MUST be sharp for 8+; blown skin = max 6
+  landscape    → horizon line + sky exposure are primary; overall sharpness across frame
+  event_group  → faces must be recognizable for 8+; motion blur heavily penalised
+  food_object  → hero subject must be sharp; lighting revealing texture critical
+  street_candid→ intentional motion blur acceptable; decisive moment outweighs slight softness
+
+── AESTHETIC (composition · color · social media visual appeal):
+  10 → Strong composition (rule of thirds / symmetry / leading lines), harmonious palette, thumb-stopping
+   8 → Visually appealing; one minor weakness in composition OR color
+   6 → Neutral — nothing jarring but nothing draws the eye
+   4 → Cluttered OR clashing colors OR awkward crop cutting subject badly
+   2 → No clear visual hierarchy; disorienting or repellent
+
+  Type-specific adjustments:
+  portrait     → subject placement, background separation, expression framing
+  landscape    → foreground interest, golden-hour light = +0.5 bonus, horizon must be level for 8+
+  event_group  → natural vs forced arrangement; energy and emotion in frame
+  food_object  → styling, angle choice, color contrast with background
+  street_candid→ decisive moment, geometry, human element as anchor
+
+── CONTENT (subject · emotion · story · social media potential):
+  10 → Compelling subject with strong emotion/story, immediately engaging, high post potential
+   8 → Good subject, clear intent, would perform well on social media
+   6 → Adequate subject; generic or lacks a hook
+   4 → Unclear main subject OR subject is uninteresting for any audience
+   2 → No discernible subject or story
+
+  Type-specific adjustments:
+  portrait     → expression authenticity, eye contact, emotional connection
+  landscape    → sense of place, mood, makes viewer want to be there
+  event_group  → peak moment captured, candid emotion > posed smiles
+  food_object  → appetite/desire appeal, lifestyle context
+  street_candid→ story told in single frame, unexpected or human angle
+
+═══ STEP 3 — DETERMINE direction (the photo's PRIMARY strength):
+  technical_leaning  → strongest quality is sharpness / exposure / technical execution
+  emotional_leaning  → strongest quality is emotion / moment / story
+  balanced           → both technical and emotional qualities are strong
+
+═══ STEP 4 — Return ONLY valid JSON, no extra text, no markdown fences:
+{
+  "photo_type": "<portrait|landscape|event_group|food_object|street_candid>",
+  "technical": <number>,
+  "aesthetic": <number>,
+  "content": <number>,
+  "direction": "<technical_leaning|emotional_leaning|balanced>",
+  "reason": "<one sentence in Vietnamese: name the single biggest strength OR weakness>"
+}"""
 
 
 try:
@@ -51,7 +115,10 @@ except ImportError:
 class GeminiProvider(VisionProvider):
     def __init__(self, api_key: str) -> None:
         genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel("gemini-2.0-flash")
+        self._model = genai.GenerativeModel(
+            "gemini-2.0-flash",
+            generation_config=genai.GenerationConfig(temperature=0),
+        )
 
     def score(self, image_path: str) -> ScoreResult:
         import PIL.Image
@@ -62,17 +129,15 @@ class GeminiProvider(VisionProvider):
 
 
 def _extract_float(value) -> float:
-    """Extract float from a value that might be int, float, str, or dict."""
+    """Extract float from value that might be int, float, str, or dict."""
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
         return float(value)
     if isinstance(value, dict):
-        # llava sometimes returns {"score": 8.5} or {"value": 8.5}
         for key in ("score", "value", "rating", "points"):
             if key in value:
                 return float(value[key])
-        # fallback: grab first numeric value in dict
         for v in value.values():
             if isinstance(v, (int, float)):
                 return float(v)
@@ -81,9 +146,15 @@ def _extract_float(value) -> float:
 
 def _parse_response(filename: str, text: str) -> ScoreResult:
     try:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        data = json.loads(text[start:end])
+        # Strip markdown fences if model wraps in ```json ... ```
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = "\n".join(cleaned.split("\n")[1:])
+        if cleaned.endswith("```"):
+            cleaned = "\n".join(cleaned.split("\n")[:-1])
+        start = cleaned.find("{")
+        end = cleaned.rfind("}") + 1
+        data = json.loads(cleaned[start:end])
         return ScoreResult(
             filename=filename,
             technical=_extract_float(data["technical"]),
@@ -91,6 +162,8 @@ def _parse_response(filename: str, text: str) -> ScoreResult:
             content=_extract_float(data["content"]),
             total=0.0,
             reason=str(data.get("reason", "")),
+            photo_type=str(data.get("photo_type", "unknown")),
+            direction=str(data.get("direction", "balanced")),
         )
     except (json.JSONDecodeError, KeyError, ValueError):
         return ScoreResult(
@@ -100,6 +173,8 @@ def _parse_response(filename: str, text: str) -> ScoreResult:
             content=5.0,
             total=0.0,
             reason="Không thể phân tích ảnh này",
+            photo_type="unknown",
+            direction="balanced",
         )
 
 
@@ -120,7 +195,8 @@ class ClaudeProvider(VisionProvider):
             image_data = base64.standard_b64encode(f.read()).decode("utf-8")
         response = self._client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=512,
+            max_tokens=1024,
+            temperature=0,
             messages=[{
                 "role": "user",
                 "content": [
@@ -157,8 +233,9 @@ class OllamaProvider(VisionProvider):
                 "prompt": SCORING_PROMPT,
                 "images": [image_data],
                 "stream": False,
+                "options": {"temperature": 0},
             },
-            timeout=60,
+            timeout=120,
         )
         response.raise_for_status()
         return _parse_response(filename, response.json()["response"])
