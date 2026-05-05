@@ -180,105 +180,128 @@ if "ranked" in st.session_state:
     st.success(f"✅ {len(photos)} ảnh · {elapsed:.0f}s · {model_label}")
     st.divider()
 
-    # ── 1. Grid thumbnail + tổng điểm ────────────────────────────────────────
-    st.subheader("🏆 Xếp hạng")
-    thumb_cols = st.columns(len(ranked))
-    for i, (col, r) in enumerate(zip(thumb_cols, ranked)):
+    # Sub-scores metadata
+    SUB_ORDER = [
+        ("sharpness",        "Độ nét",   "🔧 Kỹ thuật"),
+        ("exposure",         "Ánh sáng", "🔧 Kỹ thuật"),
+        ("noise",            "Nhiễu",    "🔧 Kỹ thuật"),
+        ("composition",      "Bố cục",   "🎨 Thẩm mỹ"),
+        ("color_harmony",    "Màu sắc",  "🎨 Thẩm mỹ"),
+        ("visual_impact",    "Thu hút",  "🎨 Thẩm mỹ"),
+        ("subject_clarity",  "Chủ thể",  "👤 Nội dung"),
+        ("emotion_story",    "Cảm xúc",  "👤 Nội dung"),
+        ("social_potential", "Social",   "👤 Nội dung"),
+    ]
+
+    # ── Layout: ảnh nhỏ bên trái, chart bên phải ─────────────────────────────
+    N = len(ranked)
+    # Mỗi ảnh chiếm 1 cột, chart chiếm 3 cột
+    left_cols = st.columns(N)
+
+    for i, (col, r) in enumerate(zip(left_cols, ranked)):
         photo_info = next((p for p in photos if Path(p.thumbnail_path).name == r.filename), None)
+        rank_color = "#FFD700" if i == 0 else "#C0C0C0" if i == 1 else "#CD7F32" if i == 2 else "#aaa"
+        rank_icon  = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"#{i+1}"
+
         with col:
+            # Ảnh nhỏ — giới hạn width bằng CSS wrapper
             if photo_info and Path(photo_info.thumbnail_path).exists():
                 st.image(photo_info.thumbnail_path, use_container_width=True)
-            rank_color = "#FFD700" if i == 0 else "#C0C0C0" if i == 1 else "#CD7F32" if i == 2 else "#888"
+
             st.markdown(
-                f"<div style='text-align:center'>"
-                f"<span style='font-size:1.1em;font-weight:bold;color:{rank_color}'>#{i+1}</span> "
-                f"<span style='font-size:1.3em;font-weight:bold'>{r.total:.2f}</span><br>"
-                f"<small>{PHOTO_TYPE_LABELS.get(getattr(r,'photo_type','unknown'),'❓')} · "
-                f"{DIRECTION_LABELS.get(getattr(r,'direction','balanced'),'')}</small>"
+                f"<div style='text-align:center;line-height:1.4'>"
+                f"<span style='font-size:1.05em;font-weight:700;color:{rank_color}'>{rank_icon}</span> "
+                f"<span style='font-size:1.2em;font-weight:700'>{r.total:.2f}</span><br>"
+                f"<span style='font-size:0.72em;color:#888'>"
+                f"{PHOTO_TYPE_LABELS.get(getattr(r,'photo_type','unknown'),'❓')}<br>"
+                f"{DIRECTION_LABELS.get(getattr(r,'direction','balanced'),'')}</span>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             if photo_info and photo_info.uuid:
-                if st.button("📱 Photos", key=f"open_{i}", use_container_width=True):
+                if st.button("📱", key=f"open_{i}", use_container_width=True, help="Mở trong Photos"):
                     st.session_state["open_uuid"] = photo_info.uuid
                     st.rerun()
 
     st.divider()
 
-    # ── 2. Bar chart so sánh 3 dimension chính ───────────────────────────────
-    st.subheader("📊 So sánh tổng quan")
-    rows = []
-    for i, r in enumerate(ranked):
-        label = f"#{i+1}"
-        rows += [
-            {"Ảnh": label, "Tiêu chí": "🔧 Kỹ thuật", "Điểm": r.technical},
-            {"Ảnh": label, "Tiêu chí": "🎨 Thẩm mỹ",  "Điểm": r.aesthetic},
-            {"Ảnh": label, "Tiêu chí": "👤 Nội dung",  "Điểm": r.content},
-        ]
-    df_main = pd.DataFrame(rows)
+    # ── Chart gộp: 9 tiêu chí, color = ảnh ──────────────────────────────────
+    st.subheader("📊 So sánh chi tiết")
 
-    chart_main = (
-        alt.Chart(df_main)
+    sub_rows = []
+    for i, r in enumerate(ranked):
+        for key, label, nhom in SUB_ORDER:
+            sub_rows.append({
+                "Ảnh":    f"#{i+1}",
+                "Tiêu chí": label,
+                "Nhóm":   nhom,
+                "Điểm":   getattr(r, key, 5.0),
+                "order":  SUB_ORDER.index((key, label, nhom)),
+            })
+    df = pd.DataFrame(sub_rows)
+    criteria_order = [s[1] for s in SUB_ORDER]
+
+    # Shading nền theo nhóm dimension
+    shade_data = pd.DataFrame([
+        {"x1": -0.5, "x2": 2.5,  "Nhóm": "🔧 Kỹ thuật"},
+        {"x1":  2.5, "x2": 5.5,  "Nhóm": "🎨 Thẩm mỹ"},
+        {"x1":  5.5, "x2": 8.5,  "Nhóm": "👤 Nội dung"},
+    ])
+    shade = (
+        alt.Chart(shade_data)
+        .mark_rect(opacity=0.06)
+        .encode(
+            x=alt.X("x1:Q", scale=alt.Scale(domain=[-0.5, 8.5])),
+            x2="x2:Q",
+            color=alt.Color("Nhóm:N",
+                scale=alt.Scale(
+                    domain=["🔧 Kỹ thuật", "🎨 Thẩm mỹ", "👤 Nội dung"],
+                    range=["#4C9BE8", "#F4845F", "#56C596"],
+                ),
+                legend=None,
+            ),
+        )
+    )
+
+    bars = (
+        alt.Chart(df)
         .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
         .encode(
-            x=alt.X("Ảnh:N", title=None, axis=alt.Axis(labelAngle=0)),
-            y=alt.Y("Điểm:Q", scale=alt.Scale(domain=[0, 10]), title="Điểm"),
-            color=alt.Color(
-                "Tiêu chí:N",
-                scale=alt.Scale(domain=list(DIM_COLORS.keys()), range=list(DIM_COLORS.values())),
-                legend=alt.Legend(title=None, orient="top"),
+            x=alt.X("Tiêu chí:N",
+                sort=criteria_order,
+                title=None,
+                axis=alt.Axis(labelAngle=-35, labelFontSize=11),
             ),
-            xOffset="Tiêu chí:N",
-            tooltip=["Ảnh", "Tiêu chí", alt.Tooltip("Điểm:Q", format=".2f")],
+            y=alt.Y("Điểm:Q",
+                scale=alt.Scale(domain=[0, 10]),
+                title="Điểm",
+                axis=alt.Axis(grid=True, gridOpacity=0.3),
+            ),
+            color=alt.Color("Ảnh:N",
+                legend=alt.Legend(title="Ảnh", orient="top-right"),
+            ),
+            xOffset=alt.XOffset("Ảnh:N"),
+            tooltip=[
+                "Ảnh",
+                alt.Tooltip("Nhóm:N", title="Nhóm"),
+                alt.Tooltip("Tiêu chí:N", title="Tiêu chí"),
+                alt.Tooltip("Điểm:Q", format=".2f"),
+            ],
         )
-        .properties(height=260)
     )
-    st.altair_chart(chart_main, use_container_width=True)
 
-    # ── 3. Sub-scores chi tiết (expandable) ──────────────────────────────────
-    with st.expander("🔍 Chi tiết 9 tiêu chí"):
-        SUB_LABELS = {
-            "sharpness":        ("🔧", "Độ nét"),
-            "exposure":         ("🔧", "Ánh sáng"),
-            "noise":            ("🔧", "Nhiễu"),
-            "composition":      ("🎨", "Bố cục"),
-            "color_harmony":    ("🎨", "Màu sắc"),
-            "visual_impact":    ("🎨", "Thu hút"),
-            "subject_clarity":  ("👤", "Chủ thể"),
-            "emotion_story":    ("👤", "Cảm xúc"),
-            "social_potential": ("👤", "Social"),
-        }
-        sub_rows = []
-        for i, r in enumerate(ranked):
-            for key, (_, label) in SUB_LABELS.items():
-                sub_rows.append({
-                    "Ảnh":    f"#{i+1}",
-                    "Tiêu chí": label,
-                    "Điểm":   getattr(r, key, 5.0),
-                })
-        df_sub = pd.DataFrame(sub_rows)
+    # Rule ngang tại điểm 7 làm ngưỡng tham chiếu
+    rule = (
+        alt.Chart(pd.DataFrame({"y": [7]}))
+        .mark_rule(strokeDash=[4, 3], color="#888", opacity=0.5)
+        .encode(y="y:Q")
+    )
 
-        chart_sub = (
-            alt.Chart(df_sub)
-            .mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
-            .encode(
-                x=alt.X("Ảnh:N", title=None, axis=alt.Axis(labelAngle=0)),
-                y=alt.Y("Điểm:Q", scale=alt.Scale(domain=[0, 10])),
-                color=alt.Color("Ảnh:N", legend=None),
-                column=alt.Column(
-                    "Tiêu chí:N",
-                    title=None,
-                    header=alt.Header(labelFontSize=12, labelOrient="bottom"),
-                ),
-                tooltip=["Ảnh", "Tiêu chí", alt.Tooltip("Điểm:Q", format=".2f")],
-            )
-            .properties(width=60, height=180)
-        )
-        st.altair_chart(chart_sub)
+    chart = (shade + bars + rule).properties(height=300).resolve_scale(color="independent")
+    st.altair_chart(chart, use_container_width=True)
 
-    # ── 4. Nhận xét từng ảnh ─────────────────────────────────────────────────
+    # ── Nhận xét ─────────────────────────────────────────────────────────────
     st.divider()
-    st.subheader("💬 Nhận xét")
     for i, r in enumerate(ranked):
-        rank_icon = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"#{i+1}"
-        st.markdown(f"**{rank_icon}** — {r.reason}")
+        icon = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"#{i+1}"
+        st.caption(f"{icon} {r.reason}")
