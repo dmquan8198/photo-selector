@@ -116,7 +116,7 @@ class GeminiProvider(VisionProvider):
     def __init__(self, api_key: str) -> None:
         genai.configure(api_key=api_key)
         self._model = genai.GenerativeModel(
-            "gemini-2.0-flash",
+            "gemini-2.5-flash-preview-05-20",
             generation_config=genai.GenerationConfig(temperature=0),
         )
 

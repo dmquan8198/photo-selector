@@ -11,6 +11,27 @@ st.set_page_config(page_title="Photo Selector", page_icon="📸", layout="center
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
+PROVIDER_OPTIONS = {
+    "🦙 llama3.2-vision · Local (khuyên dùng)": {"provider": "ollama", "ollama_model": "llama3.2-vision"},
+    "🦙 llava · Local":                          {"provider": "ollama", "ollama_model": "llava"},
+    "✨ Gemini 2.5 Flash · Cloud":               {"provider": "gemini"},
+    "🤖 Claude Haiku · Cloud":                   {"provider": "claude"},
+}
+
+PHOTO_TYPE_LABELS = {
+    "portrait":      "👤 Portrait",
+    "landscape":     "🏔️ Phong cảnh",
+    "event_group":   "🎉 Sự kiện / Nhóm",
+    "food_object":   "🍜 Đồ ăn / Vật thể",
+    "street_candid": "📸 Street / Candid",
+    "unknown":       "❓ Không xác định",
+}
+DIRECTION_LABELS = {
+    "technical_leaning": "🔧 Thiên kỹ thuật",
+    "emotional_leaning": "❤️ Thiên cảm xúc",
+    "balanced":          "⚖️ Cân bằng",
+}
+
 
 @st.cache_data
 def load_config() -> dict:
@@ -34,6 +55,37 @@ with st.sidebar:
     st.header("⚙️ Cài đặt")
     config = load_config()
 
+    # ── AI Provider ──────────────────────────────────────────────────────────
+    st.subheader("🤖 AI Model")
+    default_provider = config["vision"].get("provider", "ollama")
+    default_model    = config["vision"].get("ollama_model", "llama3.2-vision")
+
+    # Map config → index trong dropdown
+    def _default_index() -> int:
+        for i, overrides in enumerate(PROVIDER_OPTIONS.values()):
+            if overrides["provider"] == default_provider:
+                if overrides["provider"] != "ollama":
+                    return i
+                if overrides.get("ollama_model") == default_model:
+                    return i
+        return 0
+
+    selected_label = st.selectbox(
+        "Chọn model AI",
+        list(PROVIDER_OPTIONS.keys()),
+        index=_default_index(),
+    )
+    provider_overrides = PROVIDER_OPTIONS[selected_label]
+
+    # Hiển thị gợi ý nếu là cloud model
+    if provider_overrides["provider"] == "gemini":
+        st.caption("Cần `gemini_api_key` trong config.yaml")
+    elif provider_overrides["provider"] == "claude":
+        st.caption("Cần `anthropic_api_key` trong config.yaml")
+
+    st.divider()
+
+    # ── Scoring weights ───────────────────────────────────────────────────────
     st.subheader("Trọng số chấm điểm")
     st.caption("Ba giá trị phải tổng bằng 100")
     w_tech = st.slider("🔧 Kỹ thuật (nét, sáng)", 0, 100, int(config["scoring"]["weights"]["technical"] * 100), step=5)
@@ -71,7 +123,7 @@ if run_btn and total_w == 100:
     weights = {
         "technical": w_tech / 100,
         "aesthetic": w_aest / 100,
-        "content": w_cont / 100,
+        "content":   w_cont / 100,
     }
 
     with st.spinner(f'Đang tải ảnh từ album "{album}"...'):
@@ -85,7 +137,11 @@ if run_btn and total_w == 100:
         st.warning("Album này không có ảnh.")
         st.stop()
 
-    provider = get_provider(config["vision"])
+    # Build vision config từ config.yaml + override từ UI
+    vision_config = dict(config["vision"])
+    vision_config.update(provider_overrides)
+
+    provider = get_provider(vision_config)
     progress = st.progress(0, text=f"Đang phân tích 0/{len(photos)} ảnh...")
     raw_results = []
 
@@ -99,22 +155,8 @@ if run_btn and total_w == 100:
     elapsed = time.time() - start
 
     progress.empty()
-    st.success(f"Phân tích xong {len(photos)} ảnh trong {elapsed:.0f} giây")
+    st.success(f"Phân tích xong {len(photos)} ảnh trong {elapsed:.0f} giây · model: {selected_label.split('·')[0].strip()}")
     st.divider()
-
-    PHOTO_TYPE_LABELS = {
-        "portrait": "👤 Portrait",
-        "landscape": "🏔️ Phong cảnh",
-        "event_group": "🎉 Sự kiện / Nhóm",
-        "food_object": "🍜 Đồ ăn / Vật thể",
-        "street_candid": "📸 Street / Candid",
-        "unknown": "❓ Không xác định",
-    }
-    DIRECTION_LABELS = {
-        "technical_leaning": "🔧 Thiên kỹ thuật",
-        "emotional_leaning": "❤️ Thiên cảm xúc",
-        "balanced": "⚖️ Cân bằng",
-    }
 
     st.subheader(f"🏆 Top {len(ranked)} ảnh đẹp nhất")
 
@@ -130,7 +172,7 @@ if run_btn and total_w == 100:
 
         with col_info:
             type_label = PHOTO_TYPE_LABELS.get(r.photo_type, r.photo_type)
-            dir_label = DIRECTION_LABELS.get(r.direction, r.direction)
+            dir_label  = DIRECTION_LABELS.get(r.direction, r.direction)
             st.markdown(f"**#{i+1} — {r.filename}**")
             st.caption(f"{type_label} · {dir_label}")
             st.markdown(f"### {r.total:.1f} / 10")
