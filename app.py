@@ -1,5 +1,5 @@
 from __future__ import annotations
-import sys
+import subprocess
 import time
 from pathlib import Path
 
@@ -50,17 +50,26 @@ def list_albums() -> list[str]:
         return []
 
 
-# ── sidebar: settings ─────────────────────────────────────────────────────────
+def open_in_photos(uuid: str) -> None:
+    """Dùng AppleScript để highlight ảnh trong Photos.app."""
+    script = f"""
+tell application "Photos"
+    activate
+    spotlight media item id "{uuid}"
+end tell
+"""
+    subprocess.Popen(["osascript", "-e", script])
+
+
+# ── sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ Cài đặt")
     config = load_config()
 
-    # ── AI Provider ──────────────────────────────────────────────────────────
     st.subheader("🤖 AI Model")
     default_provider = config["vision"].get("provider", "ollama")
     default_model    = config["vision"].get("ollama_model", "llama3.2-vision")
 
-    # Map config → index trong dropdown
     def _default_index() -> int:
         for i, overrides in enumerate(PROVIDER_OPTIONS.values()):
             if overrides["provider"] == default_provider:
@@ -77,7 +86,6 @@ with st.sidebar:
     )
     provider_overrides = PROVIDER_OPTIONS[selected_label]
 
-    # Hiển thị gợi ý nếu là cloud model
     if provider_overrides["provider"] == "gemini":
         st.caption("Cần `gemini_api_key` trong config.yaml")
     elif provider_overrides["provider"] == "claude":
@@ -85,7 +93,6 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Scoring weights ───────────────────────────────────────────────────────
     st.subheader("Trọng số chấm điểm")
     st.caption("Ba giá trị phải tổng bằng 100")
     w_tech = st.slider("🔧 Kỹ thuật (nét, sáng)", 0, 100, int(config["scoring"]["weights"]["technical"] * 100), step=5)
@@ -114,11 +121,12 @@ run_btn = st.button("✨ Chọn ảnh đẹp nhất", disabled=(total_w != 100),
 if total_w != 100:
     st.error(f"Tổng trọng số = {total_w}. Hãy điều chỉnh sidebar để tổng = 100 trước khi chạy.")
 
+# ── scoring ───────────────────────────────────────────────────────────────────
 if run_btn and total_w == 100:
     from photo_loader import load_photos_by_album, cleanup
     from photo_scorer import get_provider, rank_photos
 
-    cleanup()  # xóa ảnh cũ từ lần chạy trước (nếu có)
+    cleanup()
 
     weights = {
         "technical": w_tech / 100,
@@ -137,11 +145,10 @@ if run_btn and total_w == 100:
         st.warning("Album này không có ảnh.")
         st.stop()
 
-    # Build vision config từ config.yaml + override từ UI
     vision_config = dict(config["vision"])
     vision_config.update(provider_overrides)
-
     provider = get_provider(vision_config)
+
     progress = st.progress(0, text=f"Đang phân tích 0/{len(photos)} ảnh...")
     raw_results = []
 
@@ -153,11 +160,27 @@ if run_btn and total_w == 100:
 
     ranked = rank_photos(raw_results, weights, top_n=int(top_n))
     elapsed = time.time() - start
-
     progress.empty()
-    st.success(f"Phân tích xong {len(photos)} ảnh trong {elapsed:.0f} giây · model: {selected_label.split('·')[0].strip()}")
-    st.divider()
 
+    # Lưu kết quả vào session_state để giữ khi click nút phụ
+    st.session_state["ranked"]         = ranked
+    st.session_state["photos"]         = photos
+    st.session_state["elapsed"]        = elapsed
+    st.session_state["model_label"]    = selected_label.split("·")[0].strip()
+
+# ── hiển thị kết quả ──────────────────────────────────────────────────────────
+if "ranked" in st.session_state:
+    ranked      = st.session_state["ranked"]
+    photos      = st.session_state["photos"]
+    elapsed     = st.session_state["elapsed"]
+    model_label = st.session_state["model_label"]
+
+    # Xử lý yêu cầu mở ảnh trong Photos (từ lần click trước)
+    if "open_uuid" in st.session_state:
+        open_in_photos(st.session_state.pop("open_uuid"))
+
+    st.success(f"Phân tích xong {len(photos)} ảnh trong {elapsed:.0f} giây · model: {model_label}")
+    st.divider()
     st.subheader(f"🏆 Top {len(ranked)} ảnh đẹp nhất")
 
     for i, r in enumerate(ranked):
@@ -176,10 +199,16 @@ if run_btn and total_w == 100:
             st.markdown(f"**#{i+1} — {r.filename}**")
             st.caption(f"{type_label} · {dir_label}")
             st.markdown(f"### {r.total:.1f} / 10")
+
             c1, c2, c3 = st.columns(3)
             c1.metric("🔧 Kỹ thuật", f"{r.technical:.1f}")
             c2.metric("🎨 Thẩm mỹ", f"{r.aesthetic:.1f}")
             c3.metric("👤 Nội dung", f"{r.content:.1f}")
             st.info(f"💬 {r.reason}")
+
+            if photo_info and photo_info.uuid:
+                if st.button("📱 Mở trong Photos", key=f"open_{i}", use_container_width=True):
+                    st.session_state["open_uuid"] = photo_info.uuid
+                    st.rerun()
 
         st.divider()

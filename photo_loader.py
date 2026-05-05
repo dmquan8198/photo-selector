@@ -15,6 +15,7 @@ class PhotoInfo:
     original_filename: str
     thumbnail_path: str
     date_taken: datetime
+    uuid: str = ""
 
 
 def load_photos_by_album(
@@ -60,6 +61,7 @@ def _export_thumbnails(
             original_filename=photo.original_filename,
             thumbnail_path=thumb_path,
             date_taken=photo.date,
+            uuid=photo.uuid,
         ))
     return results
 
