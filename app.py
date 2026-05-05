@@ -3,11 +3,13 @@ import subprocess
 import time
 from pathlib import Path
 
+import altair as alt
+import pandas as pd
 import streamlit as st
 import yaml
 
 # ── page config ──────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Photo Selector", page_icon="📸", layout="centered")
+st.set_page_config(page_title="Photo Selector", page_icon="📸", layout="wide")
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
@@ -21,15 +23,20 @@ PROVIDER_OPTIONS = {
 PHOTO_TYPE_LABELS = {
     "portrait":      "👤 Portrait",
     "landscape":     "🏔️ Phong cảnh",
-    "event_group":   "🎉 Sự kiện / Nhóm",
-    "food_object":   "🍜 Đồ ăn / Vật thể",
-    "street_candid": "📸 Street / Candid",
-    "unknown":       "❓ Không xác định",
+    "event_group":   "🎉 Sự kiện",
+    "food_object":   "🍜 Đồ ăn",
+    "street_candid": "📸 Candid",
+    "unknown":       "❓",
 }
 DIRECTION_LABELS = {
-    "technical_leaning": "🔧 Thiên kỹ thuật",
-    "emotional_leaning": "❤️ Thiên cảm xúc",
+    "technical_leaning": "🔧 Kỹ thuật",
+    "emotional_leaning": "❤️ Cảm xúc",
     "balanced":          "⚖️ Cân bằng",
+}
+DIM_COLORS = {
+    "🔧 Kỹ thuật": "#4C9BE8",
+    "🎨 Thẩm mỹ":  "#F4845F",
+    "👤 Nội dung": "#56C596",
 }
 
 
@@ -51,7 +58,6 @@ def list_albums() -> list[str]:
 
 
 def open_in_photos(uuid: str) -> None:
-    """Dùng AppleScript để highlight ảnh trong Photos.app."""
     script = f"""
 tell application "Photos"
     activate
@@ -79,13 +85,8 @@ with st.sidebar:
                     return i
         return 0
 
-    selected_label = st.selectbox(
-        "Chọn model AI",
-        list(PROVIDER_OPTIONS.keys()),
-        index=_default_index(),
-    )
+    selected_label = st.selectbox("Chọn model AI", list(PROVIDER_OPTIONS.keys()), index=_default_index())
     provider_overrides = PROVIDER_OPTIONS[selected_label]
-
     if provider_overrides["provider"] == "gemini":
         st.caption("Cần `gemini_api_key` trong config.yaml")
     elif provider_overrides["provider"] == "claude":
@@ -95,31 +96,33 @@ with st.sidebar:
 
     st.subheader("Trọng số chấm điểm")
     st.caption("Ba giá trị phải tổng bằng 100")
-    w_tech = st.slider("🔧 Kỹ thuật (nét, sáng)", 0, 100, int(config["scoring"]["weights"]["technical"] * 100), step=5)
-    w_aest = st.slider("🎨 Thẩm mỹ (bố cục, màu)", 0, 100, int(config["scoring"]["weights"]["aesthetic"] * 100), step=5)
-    w_cont = st.slider("👤 Nội dung (chủ thể, mặt)", 0, 100, int(config["scoring"]["weights"]["content"] * 100), step=5)
+    w_tech = st.slider("🔧 Kỹ thuật", 0, 100, int(config["scoring"]["weights"]["technical"] * 100), step=5)
+    w_aest = st.slider("🎨 Thẩm mỹ",  0, 100, int(config["scoring"]["weights"]["aesthetic"] * 100), step=5)
+    w_cont = st.slider("👤 Nội dung",  0, 100, int(config["scoring"]["weights"]["content"] * 100),   step=5)
 
     total_w = w_tech + w_aest + w_cont
     if total_w != 100:
-        st.warning(f"Tổng hiện tại: {total_w}/100 — cần điều chỉnh để tổng = 100")
+        st.warning(f"Tổng: {total_w}/100")
 
     top_n = st.number_input("📊 Số ảnh muốn chọn", min_value=1, max_value=10, value=config["scoring"]["top_n"])
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
 st.title("📸 Photo Selector")
-st.caption("Chọn album, bấm nút — AI sẽ tìm ra ảnh đẹp nhất cho bạn.")
 
 albums = list_albums()
 if not albums:
-    st.info("Không tìm thấy album nào trong Photos.app. Hãy chạy app trên MacBook.")
+    st.info("Không tìm thấy album nào trong Photos.app.")
     st.stop()
 
-album = st.selectbox("Chọn album", albums, index=0)
-run_btn = st.button("✨ Chọn ảnh đẹp nhất", disabled=(total_w != 100), use_container_width=True)
+col_sel, col_btn = st.columns([3, 1])
+with col_sel:
+    album = st.selectbox("Chọn album", albums, index=0, label_visibility="collapsed")
+with col_btn:
+    run_btn = st.button("✨ Phân tích", disabled=(total_w != 100), use_container_width=True)
 
 if total_w != 100:
-    st.error(f"Tổng trọng số = {total_w}. Hãy điều chỉnh sidebar để tổng = 100 trước khi chạy.")
+    st.error(f"Tổng trọng số = {total_w}. Cần = 100.")
 
 # ── scoring ───────────────────────────────────────────────────────────────────
 if run_btn and total_w == 100:
@@ -127,12 +130,7 @@ if run_btn and total_w == 100:
     from photo_scorer import get_provider, rank_photos
 
     cleanup()
-
-    weights = {
-        "technical": w_tech / 100,
-        "aesthetic": w_aest / 100,
-        "content":   w_cont / 100,
-    }
+    weights = {"technical": w_tech / 100, "aesthetic": w_aest / 100, "content": w_cont / 100}
 
     with st.spinner(f'Đang tải ảnh từ album "{album}"...'):
         try:
@@ -146,12 +144,8 @@ if run_btn and total_w == 100:
     if not photos:
         st.warning("Album này không có ảnh nào export được.")
         st.stop()
-
     if skipped > 0:
-        st.warning(
-            f"⚠️ {skipped}/{total_in_album} ảnh bị bỏ qua (có thể chưa tải về từ iCloud). "
-            f"Đang phân tích {len(photos)} ảnh khả dụng."
-        )
+        st.warning(f"⚠️ {skipped}/{total_in_album} ảnh bị bỏ qua (chưa tải từ iCloud). Phân tích {len(photos)} ảnh.")
 
     vision_config = dict(config["vision"])
     vision_config.update(provider_overrides)
@@ -159,86 +153,132 @@ if run_btn and total_w == 100:
 
     progress = st.progress(0, text=f"Đang phân tích 0/{len(photos)} ảnh...")
     raw_results = []
-
     start = time.time()
     for i, photo in enumerate(photos):
-        result = provider.score(photo.thumbnail_path)
-        raw_results.append(result)
+        raw_results.append(provider.score(photo.thumbnail_path))
         progress.progress((i + 1) / len(photos), text=f"Đang phân tích {i+1}/{len(photos)} ảnh...")
 
-    ranked = rank_photos(raw_results, weights, top_n=int(top_n))
+    ranked  = rank_photos(raw_results, weights, top_n=int(top_n))
     elapsed = time.time() - start
     progress.empty()
 
-    # Lưu kết quả vào session_state để giữ khi click nút phụ
-    st.session_state["ranked"]         = ranked
-    st.session_state["photos"]         = photos
-    st.session_state["elapsed"]        = elapsed
-    st.session_state["model_label"]    = selected_label.split("·")[0].strip()
+    st.session_state["ranked"]      = ranked
+    st.session_state["photos"]      = photos
+    st.session_state["elapsed"]     = elapsed
+    st.session_state["model_label"] = selected_label.split("·")[0].strip()
 
-# ── hiển thị kết quả ──────────────────────────────────────────────────────────
+# ── kết quả ───────────────────────────────────────────────────────────────────
 if "ranked" in st.session_state:
     ranked      = st.session_state["ranked"]
     photos      = st.session_state["photos"]
     elapsed     = st.session_state["elapsed"]
     model_label = st.session_state["model_label"]
 
-    # Xử lý yêu cầu mở ảnh trong Photos (từ lần click trước)
     if "open_uuid" in st.session_state:
         open_in_photos(st.session_state.pop("open_uuid"))
 
-    st.success(f"Phân tích xong {len(photos)} ảnh trong {elapsed:.0f} giây · model: {model_label}")
+    st.success(f"✅ {len(photos)} ảnh · {elapsed:.0f}s · {model_label}")
     st.divider()
-    st.subheader(f"🏆 Top {len(ranked)} ảnh đẹp nhất")
 
-    for i, r in enumerate(ranked):
+    # ── 1. Grid thumbnail + tổng điểm ────────────────────────────────────────
+    st.subheader("🏆 Xếp hạng")
+    thumb_cols = st.columns(len(ranked))
+    for i, (col, r) in enumerate(zip(thumb_cols, ranked)):
         photo_info = next((p for p in photos if Path(p.thumbnail_path).name == r.filename), None)
-
-        col_img, col_info = st.columns([1, 2])
-        with col_img:
+        with col:
             if photo_info and Path(photo_info.thumbnail_path).exists():
                 st.image(photo_info.thumbnail_path, use_container_width=True)
-            else:
-                st.caption("(không tìm thấy ảnh)")
-
-        with col_info:
-            type_label = PHOTO_TYPE_LABELS.get(getattr(r, "photo_type", "unknown"), "❓")
-            dir_label  = DIRECTION_LABELS.get(getattr(r, "direction", "balanced"), "⚖️ Cân bằng")
-            st.markdown(f"**#{i+1} — {r.filename}**")
-            st.caption(f"{type_label} · {dir_label}")
-            st.markdown(f"### ⭐ {r.total:.2f} / 10")
-
-            # Main scores
-            c1, c2, c3 = st.columns(3)
-            c1.metric("🔧 Kỹ thuật", f"{r.technical:.2f}")
-            c2.metric("🎨 Thẩm mỹ", f"{r.aesthetic:.2f}")
-            c3.metric("👤 Nội dung", f"{r.content:.2f}")
-
-            # Sub-scores chi tiết
-            with st.expander("📊 Chi tiết điểm"):
-                st.markdown("**🔧 Kỹ thuật** *(avg → điểm trên)*")
-                s1, s2, s3 = st.columns(3)
-                s1.metric("Độ nét", f"{getattr(r, 'sharpness', 0):.2f}")
-                s2.metric("Ánh sáng", f"{getattr(r, 'exposure', 0):.2f}")
-                s3.metric("Nhiễu", f"{getattr(r, 'noise', 0):.2f}")
-
-                st.markdown("**🎨 Thẩm mỹ** *(avg → điểm trên)*")
-                a1, a2, a3 = st.columns(3)
-                a1.metric("Bố cục", f"{getattr(r, 'composition', 0):.2f}")
-                a2.metric("Màu sắc", f"{getattr(r, 'color_harmony', 0):.2f}")
-                a3.metric("Thu hút", f"{getattr(r, 'visual_impact', 0):.2f}")
-
-                st.markdown("**👤 Nội dung** *(avg → điểm trên)*")
-                n1, n2, n3 = st.columns(3)
-                n1.metric("Chủ thể", f"{getattr(r, 'subject_clarity', 0):.2f}")
-                n2.metric("Cảm xúc", f"{getattr(r, 'emotion_story', 0):.2f}")
-                n3.metric("Social", f"{getattr(r, 'social_potential', 0):.2f}")
-
-            st.info(f"💬 {r.reason}")
-
+            rank_color = "#FFD700" if i == 0 else "#C0C0C0" if i == 1 else "#CD7F32" if i == 2 else "#888"
+            st.markdown(
+                f"<div style='text-align:center'>"
+                f"<span style='font-size:1.1em;font-weight:bold;color:{rank_color}'>#{i+1}</span> "
+                f"<span style='font-size:1.3em;font-weight:bold'>{r.total:.2f}</span><br>"
+                f"<small>{PHOTO_TYPE_LABELS.get(getattr(r,'photo_type','unknown'),'❓')} · "
+                f"{DIRECTION_LABELS.get(getattr(r,'direction','balanced'),'')}</small>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
             if photo_info and photo_info.uuid:
-                if st.button("📱 Mở trong Photos", key=f"open_{i}", use_container_width=True):
+                if st.button("📱 Photos", key=f"open_{i}", use_container_width=True):
                     st.session_state["open_uuid"] = photo_info.uuid
                     st.rerun()
 
-        st.divider()
+    st.divider()
+
+    # ── 2. Bar chart so sánh 3 dimension chính ───────────────────────────────
+    st.subheader("📊 So sánh tổng quan")
+    rows = []
+    for i, r in enumerate(ranked):
+        label = f"#{i+1}"
+        rows += [
+            {"Ảnh": label, "Tiêu chí": "🔧 Kỹ thuật", "Điểm": r.technical},
+            {"Ảnh": label, "Tiêu chí": "🎨 Thẩm mỹ",  "Điểm": r.aesthetic},
+            {"Ảnh": label, "Tiêu chí": "👤 Nội dung",  "Điểm": r.content},
+        ]
+    df_main = pd.DataFrame(rows)
+
+    chart_main = (
+        alt.Chart(df_main)
+        .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+        .encode(
+            x=alt.X("Ảnh:N", title=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("Điểm:Q", scale=alt.Scale(domain=[0, 10]), title="Điểm"),
+            color=alt.Color(
+                "Tiêu chí:N",
+                scale=alt.Scale(domain=list(DIM_COLORS.keys()), range=list(DIM_COLORS.values())),
+                legend=alt.Legend(title=None, orient="top"),
+            ),
+            xOffset="Tiêu chí:N",
+            tooltip=["Ảnh", "Tiêu chí", alt.Tooltip("Điểm:Q", format=".2f")],
+        )
+        .properties(height=260)
+    )
+    st.altair_chart(chart_main, use_container_width=True)
+
+    # ── 3. Sub-scores chi tiết (expandable) ──────────────────────────────────
+    with st.expander("🔍 Chi tiết 9 tiêu chí"):
+        SUB_LABELS = {
+            "sharpness":        ("🔧", "Độ nét"),
+            "exposure":         ("🔧", "Ánh sáng"),
+            "noise":            ("🔧", "Nhiễu"),
+            "composition":      ("🎨", "Bố cục"),
+            "color_harmony":    ("🎨", "Màu sắc"),
+            "visual_impact":    ("🎨", "Thu hút"),
+            "subject_clarity":  ("👤", "Chủ thể"),
+            "emotion_story":    ("👤", "Cảm xúc"),
+            "social_potential": ("👤", "Social"),
+        }
+        sub_rows = []
+        for i, r in enumerate(ranked):
+            for key, (_, label) in SUB_LABELS.items():
+                sub_rows.append({
+                    "Ảnh":    f"#{i+1}",
+                    "Tiêu chí": label,
+                    "Điểm":   getattr(r, key, 5.0),
+                })
+        df_sub = pd.DataFrame(sub_rows)
+
+        chart_sub = (
+            alt.Chart(df_sub)
+            .mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
+            .encode(
+                x=alt.X("Ảnh:N", title=None, axis=alt.Axis(labelAngle=0)),
+                y=alt.Y("Điểm:Q", scale=alt.Scale(domain=[0, 10])),
+                color=alt.Color("Ảnh:N", legend=None),
+                column=alt.Column(
+                    "Tiêu chí:N",
+                    title=None,
+                    header=alt.Header(labelFontSize=12, labelOrient="bottom"),
+                ),
+                tooltip=["Ảnh", "Tiêu chí", alt.Tooltip("Điểm:Q", format=".2f")],
+            )
+            .properties(width=60, height=180)
+        )
+        st.altair_chart(chart_sub)
+
+    # ── 4. Nhận xét từng ảnh ─────────────────────────────────────────────────
+    st.divider()
+    st.subheader("💬 Nhận xét")
+    for i, r in enumerate(ranked):
+        rank_icon = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"#{i+1}"
+        st.markdown(f"**{rank_icon}** — {r.reason}")

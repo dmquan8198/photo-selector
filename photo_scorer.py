@@ -59,6 +59,7 @@ class VisionProvider(ABC):
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
+# Prompt đầy đủ cho cloud models (Gemini, Claude) — có rubric chi tiết
 SCORING_PROMPT = """You are a professional photo analyst. Evaluate this photo for social media posting quality.
 Follow all steps in order.
 
@@ -115,6 +116,30 @@ Type-specific notes (apply to all sub-criteria):
   "direction": "<technical_leaning|emotional_leaning|balanced>",
   "reason": "<one sentence in Vietnamese: name the single biggest strength OR weakness>"
 }"""
+
+
+# Prompt rút gọn cho local models (Ollama) — ngắn gọn, dễ follow hơn
+SCORING_PROMPT_LITE = """Evaluate this photo. Return ONLY a JSON object with these exact keys and numeric scores from 2 to 10.
+
+Score each item INDEPENDENTLY — do NOT give the same score to everything.
+Use the full range: 2=terrible, 4=poor, 6=average, 8=good, 10=perfect. Half-points OK (e.g. 7.5).
+
+{
+  "photo_type": "<portrait|landscape|event_group|food_object|street_candid>",
+  "sharpness": <is the subject in focus?>,
+  "exposure": <is brightness correct, no blown or crushed areas?>,
+  "noise": <is the image clean, no grain?>,
+  "composition": <is the framing/layout well-balanced?>,
+  "color_harmony": <are the colors pleasing?>,
+  "visual_impact": <would this stop someone scrolling social media?>,
+  "subject_clarity": <is the main subject obvious?>,
+  "emotion_story": <does it convey emotion or a story?>,
+  "social_potential": <how well would this perform on social media?>,
+  "direction": "<technical_leaning|emotional_leaning|balanced>",
+  "reason": "<one sentence in Vietnamese about the biggest strength or weakness>"
+}
+
+Return ONLY the JSON. No explanation. No markdown."""
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -251,7 +276,7 @@ class OllamaProvider(VisionProvider):
             f"{self._base_url}/api/generate",
             json={
                 "model":   self._model,
-                "prompt":  SCORING_PROMPT,
+                "prompt":  SCORING_PROMPT_LITE,
                 "images":  [image_data],
                 "stream":  False,
                 "options": {"temperature": 0},
