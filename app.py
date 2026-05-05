@@ -145,7 +145,11 @@ if run_btn and total_w == 100:
         st.warning("Album này không có ảnh nào export được.")
         st.stop()
     if skipped > 0:
-        st.warning(f"⚠️ {skipped}/{total_in_album} ảnh bị bỏ qua (chưa tải từ iCloud). Phân tích {len(photos)} ảnh.")
+        st.warning(
+            f"⚠️ {skipped}/{total_in_album} ảnh không export được. "
+            f"Đang phân tích {len(photos)} ảnh khả dụng. "
+            f"Nếu vẫn còn thiếu: mở **Photos.app → chọn album → kéo xuống để tải ảnh từ iCloud** rồi chạy lại."
+        )
 
     vision_config = dict(config["vision"])
     vision_config.update(provider_overrides)

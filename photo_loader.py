@@ -47,16 +47,37 @@ def _export_thumbnails(
     thumbnail_size: int,
     tmp_dir: str,
 ) -> tuple[list[PhotoInfo], int]:
-    """Returns (photos, skipped_count)."""
+    """Returns (photos, skipped_count).
+
+    Chiến lược xuất ảnh:
+    1. Export nhanh trực tiếp (ảnh đã có local).
+    2. Nếu thất bại → dùng Photos.app export để tự download iCloud về rồi xuất.
+    """
     os.makedirs(tmp_dir, exist_ok=True)
     results = []
     skipped = 0
     for photo in photos:
+        exported = None
         try:
+            # Bước 1: export nhanh (local)
             exported = photo.export(tmp_dir, overwrite=True)
+
+            # Bước 2: fallback qua Photos.app (xử lý iCloud)
             if not exported:
-                skipped += 1
-                continue
+                exported = photo.export(
+                    tmp_dir,
+                    overwrite=True,
+                    use_photos_export=True,
+                    timeout=60,
+                )
+        except Exception:
+            pass
+
+        if not exported:
+            skipped += 1
+            continue
+
+        try:
             src_path   = exported[0]
             thumb_path = os.path.join(tmp_dir, f"thumb_{photo.uuid}.jpg")
             _resize_to_thumbnail(src_path, thumb_path, thumbnail_size)
@@ -70,6 +91,7 @@ def _export_thumbnails(
             ))
         except Exception:
             skipped += 1
+
     return results, skipped
 
 
