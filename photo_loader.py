@@ -27,7 +27,8 @@ def load_photos_by_album(
     album = next((a for a in db.album_info if a.title == album_name), None)
     if album is None:
         raise ValueError(f"Album '{album_name}' không tìm thấy trong Photos.app")
-    return _export_thumbnails(album.photos, thumbnail_size, tmp_dir)
+    photos, skipped = _export_thumbnails(album.photos, thumbnail_size, tmp_dir)
+    return photos, skipped, len(album.photos)
 
 
 def load_photos_by_days(
@@ -45,25 +46,31 @@ def _export_thumbnails(
     photos: list,
     thumbnail_size: int,
     tmp_dir: str,
-) -> list[PhotoInfo]:
+) -> tuple[list[PhotoInfo], int]:
+    """Returns (photos, skipped_count)."""
     os.makedirs(tmp_dir, exist_ok=True)
     results = []
+    skipped = 0
     for photo in photos:
-        exported = photo.export(tmp_dir, overwrite=True)
-        if not exported:
-            continue
-        src_path = exported[0]
-        thumb_path = os.path.join(tmp_dir, f"thumb_{photo.uuid}.jpg")
-        _resize_to_thumbnail(src_path, thumb_path, thumbnail_size)
-        if src_path != thumb_path and os.path.exists(src_path):
-            os.remove(src_path)
-        results.append(PhotoInfo(
-            original_filename=photo.original_filename,
-            thumbnail_path=thumb_path,
-            date_taken=photo.date,
-            uuid=photo.uuid,
-        ))
-    return results
+        try:
+            exported = photo.export(tmp_dir, overwrite=True)
+            if not exported:
+                skipped += 1
+                continue
+            src_path   = exported[0]
+            thumb_path = os.path.join(tmp_dir, f"thumb_{photo.uuid}.jpg")
+            _resize_to_thumbnail(src_path, thumb_path, thumbnail_size)
+            if src_path != thumb_path and os.path.exists(src_path):
+                os.remove(src_path)
+            results.append(PhotoInfo(
+                original_filename=photo.original_filename,
+                thumbnail_path=thumb_path,
+                date_taken=photo.date,
+                uuid=photo.uuid,
+            ))
+        except Exception:
+            skipped += 1
+    return results, skipped
 
 
 def _resize_to_thumbnail(src: str, dst: str, max_size: int) -> None:

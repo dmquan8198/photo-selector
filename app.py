@@ -136,14 +136,22 @@ if run_btn and total_w == 100:
 
     with st.spinner(f'Đang tải ảnh từ album "{album}"...'):
         try:
-            photos = load_photos_by_album(album, thumbnail_size=config["processing"]["thumbnail_size"])
+            photos, skipped, total_in_album = load_photos_by_album(
+                album, thumbnail_size=config["processing"]["thumbnail_size"]
+            )
         except ValueError as e:
             st.error(str(e))
             st.stop()
 
     if not photos:
-        st.warning("Album này không có ảnh.")
+        st.warning("Album này không có ảnh nào export được.")
         st.stop()
+
+    if skipped > 0:
+        st.warning(
+            f"⚠️ {skipped}/{total_in_album} ảnh bị bỏ qua (có thể chưa tải về từ iCloud). "
+            f"Đang phân tích {len(photos)} ảnh khả dụng."
+        )
 
     vision_config = dict(config["vision"])
     vision_config.update(provider_overrides)
@@ -194,16 +202,38 @@ if "ranked" in st.session_state:
                 st.caption("(không tìm thấy ảnh)")
 
         with col_info:
-            type_label = PHOTO_TYPE_LABELS.get(r.photo_type, r.photo_type)
-            dir_label  = DIRECTION_LABELS.get(r.direction, r.direction)
+            type_label = PHOTO_TYPE_LABELS.get(getattr(r, "photo_type", "unknown"), "❓")
+            dir_label  = DIRECTION_LABELS.get(getattr(r, "direction", "balanced"), "⚖️ Cân bằng")
             st.markdown(f"**#{i+1} — {r.filename}**")
             st.caption(f"{type_label} · {dir_label}")
-            st.markdown(f"### {r.total:.1f} / 10")
+            st.markdown(f"### ⭐ {r.total:.2f} / 10")
 
+            # Main scores
             c1, c2, c3 = st.columns(3)
-            c1.metric("🔧 Kỹ thuật", f"{r.technical:.1f}")
-            c2.metric("🎨 Thẩm mỹ", f"{r.aesthetic:.1f}")
-            c3.metric("👤 Nội dung", f"{r.content:.1f}")
+            c1.metric("🔧 Kỹ thuật", f"{r.technical:.2f}")
+            c2.metric("🎨 Thẩm mỹ", f"{r.aesthetic:.2f}")
+            c3.metric("👤 Nội dung", f"{r.content:.2f}")
+
+            # Sub-scores chi tiết
+            with st.expander("📊 Chi tiết điểm"):
+                st.markdown("**🔧 Kỹ thuật** *(avg → điểm trên)*")
+                s1, s2, s3 = st.columns(3)
+                s1.metric("Độ nét", f"{getattr(r, 'sharpness', 0):.2f}")
+                s2.metric("Ánh sáng", f"{getattr(r, 'exposure', 0):.2f}")
+                s3.metric("Nhiễu", f"{getattr(r, 'noise', 0):.2f}")
+
+                st.markdown("**🎨 Thẩm mỹ** *(avg → điểm trên)*")
+                a1, a2, a3 = st.columns(3)
+                a1.metric("Bố cục", f"{getattr(r, 'composition', 0):.2f}")
+                a2.metric("Màu sắc", f"{getattr(r, 'color_harmony', 0):.2f}")
+                a3.metric("Thu hút", f"{getattr(r, 'visual_impact', 0):.2f}")
+
+                st.markdown("**👤 Nội dung** *(avg → điểm trên)*")
+                n1, n2, n3 = st.columns(3)
+                n1.metric("Chủ thể", f"{getattr(r, 'subject_clarity', 0):.2f}")
+                n2.metric("Cảm xúc", f"{getattr(r, 'emotion_story', 0):.2f}")
+                n3.metric("Social", f"{getattr(r, 'social_potential', 0):.2f}")
+
             st.info(f"💬 {r.reason}")
 
             if photo_info and photo_info.uuid:
